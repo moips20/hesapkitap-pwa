@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hesap Kitap</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Hesap Kitap" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/monthSelect/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/tr.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/monthSelect/index.js"></script>
+</head>
+<body class="bg-gray-100 p-4 font-sans">
+  <h1 class="text-2xl font-bold text-center mb-4">Hesap Kitap</h1>
+
+  <div class="bg-white p-4 rounded-lg shadow mb-4">
+    <label for="monthPicker" class="block font-medium mb-1">Ay Seç:</label>
+    <input id="monthPicker" class="w-full border border-gray-300 rounded px-3 py-2" placeholder="Ay - Yıl" />
+  </div>
+
+  <div class="bg-white p-4 rounded-lg shadow mb-4">
+    <h3 class="text-lg font-semibold mb-2">Yeni Ödeme Ekle</h3>
+    <input type="text" id="title" placeholder="Ödeme Başlığı (örn. Garanti Kart, Kira)" class="w-full border border-gray-300 rounded px-3 py-2 mb-2">
+    <input type="text" id="amount" placeholder="Tutar" class="w-full border border-gray-300 rounded px-3 py-2 mb-2">
+    <input type="date" id="dueDate" class="w-full border border-gray-300 rounded px-3 py-2 mb-2">
+    <button onclick="addPayment()" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">Ekle</button>
+  </div>
+
+  <div class="bg-white p-4 rounded-lg shadow mb-4 flex justify-between font-semibold">
+    <div>Toplam: <span id="totalAmount">0₺</span></div>
+    <div>Kalan: <span id="remainingAmount">0₺</span></div>
+  </div>
+
+  <ul id="paymentList" class="space-y-2"></ul>
+
+  <template id="editFormTemplate">
+    <div class="edit-form space-y-2">
+      <input type="text" class="edit-title w-full border border-gray-300 rounded px-2 py-1" />
+      <input type="text" class="edit-amount w-full border border-gray-300 rounded px-2 py-1" />
+      <input type="date" class="edit-dueDate w-full border border-gray-300 rounded px-2 py-1" />
+      <div class="flex gap-2">
+        <button class="save-edit bg-green-600 text-white px-3 py-1 rounded">Kaydet</button>
+        <button class="cancel-edit bg-gray-400 text-white px-3 py-1 rounded">İptal</button>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    const monthPicker = document.getElementById("monthPicker");
+    const paymentList = document.getElementById("paymentList");
+    const totalAmountEl = document.getElementById("totalAmount");
+    const remainingAmountEl = document.getElementById("remainingAmount");
+    const amountInput = document.getElementById("amount");
+
+    let payments = JSON.parse(localStorage.getItem("payments") || "{}");
+
+    const now = new Date();
+    let selectedDate = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    flatpickr("#monthPicker", {
+      locale: "tr",
+      defaultDate: selectedDate,
+      plugins: [
+        new monthSelectPlugin({
+          shorthand: true,
+          dateFormat: "Y-m",
+          altFormat: "F Y"
+        })
+      ],
+      onChange: (selectedDates, dateStr) => {
+        selectedDate = new Date(dateStr);
+        renderPayments();
+      }
+    });
+
+    amountInput.addEventListener("input", e => {
+      let val = e.target.value.replace(/[^0-9]/g, '');
+      let num = parseInt(val);
+      if (!isNaN(num)) {
+        e.target.value = num.toLocaleString("tr-TR");
+      }
+    });
+
+    function getSelectedMonthKey() {
+      return `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}`;
+    }
+
+    function renderPayments() {
+      const selectedMonth = getSelectedMonthKey();
+      const list = payments[selectedMonth] || [];
+      paymentList.innerHTML = "";
+      let total = 0;
+      let remaining = 0;
+
+      list.forEach((item, index) => {
+        const amount = parseFloat((item.amount || "0").toString().replace(/\./g, '').replace(',', '.')) || 0;
+        total += amount;
+        if (!item.paid) remaining += amount;
+
+        const li = document.createElement("li");
+        li.className = "bg-white rounded p-3 shadow flex justify-between items-start flex-col sm:flex-row sm:items-center";
+        li.innerHTML = `
+          <div class="w-full sm:w-auto flex-1">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-medium">${item.title}</span>
+              <button onclick="enableEdit('${selectedMonth}', ${index}, this)" class="text-sm text-blue-600">✏️</button>
+              <button onclick="deletePayment('${selectedMonth}', ${index})" class="text-sm text-red-600 ml-1">🗑️</button>
+            </div>
+            <div class="text-sm text-gray-600">Tarih: ${item.dueDate}</div>
+            <div class="text-sm text-gray-600">Tutar: ${amount.toLocaleString("tr-TR")}₺</div>
+          </div>
+          <div class="mt-2 sm:mt-0">
+            <input type="checkbox" ${item.paid ? "checked" : ""} onchange="togglePaid('${selectedMonth}', ${index})" />
+          </div>
+        `;
+        paymentList.appendChild(li);
+      });
+
+      totalAmountEl.textContent = `${total.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}₺`;
+      remainingAmountEl.textContent = `${remaining.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}₺`;
+    }
+
+    function enableEdit(month, index, btn) {
+      const item = payments[month][index];
+      const li = btn.closest("li");
+      const template = document.getElementById("editFormTemplate");
+      const form = template.content.cloneNode(true);
+      const titleInput = form.querySelector(".edit-title");
+      const amountInput = form.querySelector(".edit-amount");
+      const dueDateInput = form.querySelector(".edit-dueDate");
+
+      titleInput.value = item.title;
+      amountInput.value = item.amount.toString().replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+      dueDateInput.value = item.dueDate;
+
+      form.querySelector(".save-edit").onclick = () => {
+        const newTitle = titleInput.value.trim();
+        const rawAmount = amountInput.value.replace(/[^0-9]/g, "");
+        const newAmount = parseInt(rawAmount || "0").toLocaleString("tr-TR");
+        const newDate = dueDateInput.value;
+
+        payments[month][index] = { ...item, title: newTitle, amount: newAmount, dueDate: newDate };
+        localStorage.setItem("payments", JSON.stringify(payments));
+        renderPayments();
+      };
+
+      form.querySelector(".cancel-edit").onclick = () => renderPayments();
+      li.innerHTML = "";
+      li.appendChild(form);
+    }
+
+    function deletePayment(month, index) {
+      if (payments[month]) {
+        payments[month].splice(index, 1);
+        localStorage.setItem("payments", JSON.stringify(payments));
+        renderPayments();
+      }
+    }
+
+    function addPayment() {
+      const title = document.getElementById("title").value;
+      const amount = document.getElementById("amount").value;
+      const dueDate = document.getElementById("dueDate").value;
+      if (!title || !amount || !dueDate) return alert("Lütfen tüm alanları doldurun");
+
+      const date = new Date(dueDate);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      if (!payments[monthKey]) payments[monthKey] = [];
+      payments[monthKey].push({ title, amount, dueDate, paid: false });
+      localStorage.setItem("payments", JSON.stringify(payments));
+
+      document.getElementById("title").value = "";
+      document.getElementById("amount").value = "";
+      document.getElementById("dueDate").value = "";
+      renderPayments();
+    }
+
+    function togglePaid(month, index) {
+      payments[month][index].paid = !payments[month][index].paid;
+      localStorage.setItem("payments", JSON.stringify(payments));
+      renderPayments();
+    }
+
+    renderPayments();
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .then(reg => console.log("Service Worker registered:", reg.scope))
+          .catch(err => console.log("Service Worker error:", err));
+      });
+    }
+
+    if (Notification && Notification.permission !== "granted") {
+      Notification.requestPermission();
+    }
+
+    function checkNotifications() {
+      const today = new Date();
+      const todayStr = today.toISOString().split("T")[0];
+      const nowHour = today.getHours();
+      const selectedMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+      const list = payments[selectedMonth] || [];
+
+      list.forEach(item => {
+        if (!item.paid && item.dueDate === todayStr && nowHour === 11) {
+          new Notification("Ödeme Hatırlatma", {
+            body: `${item.title} (${item.amount}₺) için son ödeme günü bugün.`
+          });
+        }
+      });
+    }
+
+    setInterval(checkNotifications, 1000 * 60 * 10);
+  </script>
+
+<script>
+function checkDuePaymentsAndNotify() {
+  const today = new Date().toISOString().split("T")[0];
+  const payments = JSON.parse(localStorage.getItem("payments") || "{}");
+  const thisMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+  const list = payments[thisMonth] || [];
+
+  const dueToday = list.filter(item => !item.paid && item.dueDate === today);
+  if (dueToday.length === 0) return;
+
+  const token = localStorage.getItem("push_token");
+  if (token) {
+    const records = dueToday.map(item => ({
+      title: item.title,
+      body: `${item.title} (${item.amount}) için bugün son ödeme günü.`
+    }));
+
+    fetch("https://hesapkitap-push-server.onrender.com/send-reminders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, records })
+    });
+  }
+}
+
+// 11:00'de çalışması için 5 dakikada bir kontrol et
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() === 11 && now.getMinutes() < 10) {
+    checkDuePaymentsAndNotify();
+  }
+}, 5 * 60 * 1000);
+</script>
+</body>
+</html>
