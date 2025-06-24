@@ -254,5 +254,20 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 </script>
+
+<button id="enableNotifications" style="position:fixed;bottom:20px;right:20px;padding:10px 15px;background:#0a84ff;color:#fff;border:none;border-radius:8px;z-index:9999;">
+  🔔 Bildirimleri Aç
+</button>
+<script>
+document.getElementById("enableNotifications").addEventListener("click", function () {
+  Notification.requestPermission().then((permission) => {
+    if (permission === "granted") {
+      alert("Bildirimlere izin verildi!");
+    } else {
+      alert("Bildirim izni verilmedi.");
+    }
+  });
+});
+</script>
 </body>
 </html>
